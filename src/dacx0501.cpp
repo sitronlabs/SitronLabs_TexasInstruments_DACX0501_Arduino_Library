@@ -1,143 +1,219 @@
+/**
+ * @file dacx0501.cpp
+ * @brief Implementation of the DACx0501 Arduino Library
+ * @author Sitron Labs
+ * @version 0.1.0
+ * @date 2024
+ *
+ * This file contains the implementation of the DACx0501 base class, providing
+ * all the functionality for communicating with Texas Instruments DACx0501
+ * series digital-to-analog converters via SPI or I2C interfaces.
+ *
+ * @copyright Copyright (c) 2024 Sitron Labs. All rights reserved.
+ * @license This library is released under the MIT License.
+ */
+
 /* Self header */
 #include "dacx0501.h"
 
 /**
- * Constructor
- * @param[in] bits Resolution in bits (12, 14, or 16)
+ * @brief Constructor for DACx0501 base class
+ *
+ * Initializes the DAC object with the specified resolution and sets up
+ * default configuration values. The actual communication interface
+ * (SPI or I2C) must be initialized separately using the begin() methods.
+ *
+ * @param[in] bits DAC resolution in bits (12, 14, or 16)
+ *                 - 12 bits: DAC60501 (4096 steps)
+ *                 - 14 bits: DAC70501 (16384 steps)
+ *                 - 16 bits: DAC80501 (65536 steps)
+ *
+ * @note Default configuration:
+ *       - Internal 2.5V reference
+ *       - 2x gain mode
+ *       - No reference divider
+ *       - No interface initialized
  */
 dacx0501::dacx0501(const uint8_t bits)
-    : m_bits(bits),
-      m_interface(INTERFACE_NONE),
-      m_spi_library(nullptr),
-      m_pin_cs(-1),
-      m_i2c_library(nullptr),
-      m_i2c_address(0),
-      m_reference_voltage(2.5f),
-      m_gain(DACX0501_GAIN_MODE_2X),
-      m_reference_divider(DACX0501_DIVIDER_1X) {
+    : m_bits(bits),                               // Set DAC resolution
+      m_interface(INTERFACE_NONE),                // No interface initialized yet
+      m_spi_library(nullptr),                     // SPI library not set
+      m_pin_cs(-1),                               // Invalid CS pin
+      m_i2c_library(nullptr),                     // I2C library not set
+      m_i2c_address(0),                           // Invalid I2C address
+      m_reference_voltage(2.5f),                  // Default internal reference
+      m_gain(DACX0501_GAIN_MODE_2X),              // Default 2x gain
+      m_reference_divider(DACX0501_DIVIDER_1X) {  // No reference divider
 }
 
 /**
- * Initialize SPI interface
- * @param[in] spi_library SPI library instance
- * @param[in] spi_speed SPI speed in Hz
- * @param[in] pin_cs Chip select pin
+ * @brief Initialize the DAC using SPI communication
+ *
+ * Sets up SPI communication with the DAC and performs initial configuration.
+ * This method configures the SPI settings, performs a soft reset, and waits
+ * for the device to be ready before returning.
+ *
+ * @param[in] spi_library SPI library instance (usually SPI)
+ * @param[in] spi_speed SPI clock speed in Hz (1 Hz to 50 MHz)
+ * @param[in] pin_cs Chip select pin number (must be valid digital pin)
  * @return 0 on success, negative error code on failure
+ *
+ * @note This method performs the following operations:
+ *       1. Validates input parameters
+ *       2. Configures SPI settings (MSB first, Mode 0)
+ *       3. Sets up chip select pin
+ *       4. Performs soft reset (trigger register = 0b1010)
+ *       5. Waits for device to respond (up to 500ms timeout)
+ *       6. Sets default configuration values
+ *
+ * @warning Make sure to call pinMode(pin_cs, OUTPUT) before calling this method
  */
 int dacx0501::begin(SPIClass& spi_library, const int spi_speed, const int pin_cs) {
     int res;
 
-    /* Ensure SPI speed is valid */
+    /* Validate SPI speed parameter */
     if ((spi_speed <= 0) || (spi_speed > 50000000)) {
-        return -EINVAL;
+        return -EINVAL;  // Invalid SPI speed (must be 1 Hz to 50 MHz)
     }
 
-    /* Ensure chip select pin is valid */
+    /* Validate chip select pin parameter */
     if (pin_cs < 0) {
-        return -EINVAL;
+        return -EINVAL;  // Invalid CS pin (must be non-negative)
     }
 
-    /* Setup SPI */
+    /* Configure SPI interface settings */
     m_spi_library = &spi_library;
-    m_spi_settings = SPISettings(spi_speed, MSBFIRST, SPI_MODE0);
+    m_spi_settings = SPISettings(spi_speed, MSBFIRST, SPI_MODE0);  // MSB first, Mode 0
     m_pin_cs = pin_cs;
     m_interface = INTERFACE_SPI;
 
-    /* Perform a soft reset */
-    uint16_t reg_trigger = 0b1010;
+    /* Configure CS pin as output and set high (inactive) */
+    pinMode(m_pin_cs, OUTPUT);
+    digitalWrite(m_pin_cs, HIGH);
+
+    /* Perform soft reset to ensure clean state */
+    uint16_t reg_trigger = 0b1010;  // Soft reset command
     res = register_write(DACX0501_REGISTER_TRIGGER, reg_trigger);
     if (res != 0) {
-        return res;
+        return res;  // Failed to perform soft reset
     }
 
-    /* Wait for device to be ready after soft reset */
+    /* Wait for device to be ready after soft reset (with timeout) */
     uint32_t time = millis();
     while (true) {
         if (detect()) {
-            break;
+            break;  // Device is responding
         } else if ((millis() - time) > 500) {
-            return -ETIMEDOUT;
+            return -ETIMEDOUT;  // Device not responding after 500ms
         } else {
-            delay(10);
+            delay(10);  // Wait 10ms before trying again
         }
     }
 
-    /* Set default configuration */
-    m_gain = DACX0501_GAIN_MODE_2X;
-    m_reference_divider = DACX0501_DIVIDER_1X;
-    m_reference_voltage = 2.5f;
+    /* Set default configuration values */
+    m_gain = DACX0501_GAIN_MODE_2X;             // 2x gain for 0-5V output range
+    m_reference_divider = DACX0501_DIVIDER_1X;  // No reference divider
+    m_reference_voltage = 2.5f;                 // Internal 2.5V reference
 
     /* Return success */
     return 0;
 }
 
 /**
- * Initialize I2C interface
- * @param[in] i2c_library I2C library instance
- * @param[in] i2c_address I2C address
+ * @brief Initialize the DAC using I2C communication
+ *
+ * Sets up I2C communication with the DAC and performs initial configuration.
+ * This method validates the I2C address, performs a soft reset, and waits
+ * for the device to be ready before returning.
+ *
+ * @param[in] i2c_library I2C library instance (usually Wire)
+ * @param[in] i2c_address I2C device address (0x48 to 0x4B)
  * @return 0 on success, negative error code on failure
+ *
+ * @note This method performs the following operations:
+ *       1. Validates I2C address (must be 0x48-0x4B)
+ *       2. Configures I2C interface
+ *       3. Performs soft reset (trigger register = 0b1010)
+ *       4. Waits for device to respond (up to 500ms timeout)
+ *       5. Sets default configuration values
+ *
+ * @note I2C Address Configuration:
+ *       - 0x48: A0=GND
+ *       - 0x49: A0=VDD
+ *       - 0x4A: A0=SDA
+ *       - 0x4B: A0=SCL
+ *
+ * @warning Make sure to call Wire.begin() before calling this method
  */
 int dacx0501::begin(TwoWire& i2c_library, const uint8_t i2c_address) {
     int res;
 
-    /* Ensure i2c address is valid */
+    /* Validate I2C address parameter */
     if ((i2c_address < 0x48) || (i2c_address > 0x4B)) {
-        return -EINVAL;
+        return -EINVAL;  // Invalid I2C address (must be 0x48-0x4B)
     }
 
-    /* Setup I2C */
+    /* Configure I2C interface settings */
     m_i2c_library = &i2c_library;
     m_i2c_address = i2c_address;
     m_interface = INTERFACE_I2C;
 
-    /* Perform a soft reset */
-    uint16_t reg_trigger = 0b1010;
+    /* Perform soft reset to ensure clean state */
+    uint16_t reg_trigger = 0b1010;  // Soft reset command
     res = register_write(DACX0501_REGISTER_TRIGGER, reg_trigger);
     if (res != 0) {
-        return res;
+        return res;  // Failed to perform soft reset
     }
 
-    /* Wait for device to be ready after soft reset */
+    /* Wait for device to be ready after soft reset (with timeout) */
     uint32_t time = millis();
     while (true) {
         if (detect()) {
-            break;
+            break;  // Device is responding
         } else if ((millis() - time) > 500) {
-            return -ETIMEDOUT;
+            return -ETIMEDOUT;  // Device not responding after 500ms
         } else {
-            delay(10);
+            delay(10);  // Wait 10ms before trying again
         }
     }
 
-    /* Set default configuration */
-    m_gain = DACX0501_GAIN_MODE_2X;
-    m_reference_divider = DACX0501_DIVIDER_1X;
-    m_reference_voltage = 2.5f;
+    /* Set default configuration values */
+    m_gain = DACX0501_GAIN_MODE_2X;             // 2x gain for 0-5V output range
+    m_reference_divider = DACX0501_DIVIDER_1X;  // No reference divider
+    m_reference_voltage = 2.5f;                 // Internal 2.5V reference
 
     /* Return success */
     return 0;
 }
 
 /**
- * Tries to detect the device.
- * @return true if the device has been detected, or false otherwise.
+ * @brief Detect if the DAC device is present and responding
+ *
+ * This method attempts to communicate with the DAC by reading the device ID
+ * register and checking for the expected signature. This is useful for
+ * verifying that the device is properly connected and responding.
+ *
+ * @return true if device is detected and responding, false otherwise
+ *
+ * @note The device signature is 0x0115 (masked with 0x0F7F to ignore
+ *       reserved bits). This signature is common to all DACx0501 variants.
  */
 bool dacx0501::detect(void) {
     int res;
 
-    /* Read device id register */
+    /* Read device ID register to get device signature */
     uint16_t reg_devid;
     res = register_read(DACX0501_REGISTER_DEVID, reg_devid);
     if (res < 0) {
-        return false;
+        return false;  // Failed to read device ID register
     }
 
-    /* Return whether or not the expected value matches */
-    uint16_t signature = reg_devid & 0x0F7F;
+    /* Check if device signature matches expected value */
+    uint16_t signature = reg_devid & 0x0F7F;  // Mask reserved bits
     if (signature == 0x0115) {
-        return true;
+        return true;  // Device detected successfully
     } else {
-        return false;
+        return false;  // Device signature doesn't match
     }
 }
 
