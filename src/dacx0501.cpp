@@ -342,10 +342,16 @@ int dacx0501::output_code_set(const uint16_t code) {
         return -EINVAL;
     }
 
-    // TODO: Left shift code depending on resolution?
+    /* Left shift code to align with 16-bit register format */
+    /* The DATA register is 16 bits, but different DACs use different bit positions:
+     * - DAC60501 (12-bit): shift left by 4 bits (bits 15:4)
+     * - DAC70501 (14-bit): shift left by 2 bits (bits 15:2)
+     * - DAC80501 (16-bit): no shift needed (bits 15:0)
+     */
+    uint16_t shifted_code = code << (16 - m_bits);
 
     /* Write DAC code to the DATA register */
-    res = register_write(DACX0501_REGISTER_DATA, code);
+    res = register_write(DACX0501_REGISTER_DATA, shifted_code);
     if (res != 0) {
         return -EIO;
     }
