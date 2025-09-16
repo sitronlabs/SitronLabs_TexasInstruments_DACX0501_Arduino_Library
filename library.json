@@ -1,0 +1,19 @@
+{
+    "name": "SitronLabs_DACx0501_Arduino_Library",
+    "version": "0.1.0",
+    "description": "Arduino library for Texas Instruments DACx0501 series of DACs with SPI and I2C support. This library provides an easy-to-use interface for the Texas Instruments DACx0501 series of digital-to-analog converters. It supports both SPI and I2C communication interfaces and includes features like multiple output channels (12-bit DAC60501, 14-bit DAC70501, 16-bit DAC80501), configurable gain, power management, and broadcast mode.",
+    "keywords": "sitron labs,sitron,labs,arduino,library,spi,dac,digital to analog,digital to analog converter,dac5311,dac6311,dac7311,dac8311,dac8411,buffered,rail to rail",
+    "repository": {
+        "type": "git",
+        "url": "https:\/\/github.com\/sitronlabs\/SitronLabs_TexasInstruments_DACX0501_Arduino_Library.git"
+    },
+    "frameworks": "arduino",
+    "platforms": "*",
+    "dependencies": {
+        "SPI": "*",
+        "Wire": "*"
+    },
+    "build": {
+        "includeDir": "src"
+    }
+}

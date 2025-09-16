@@ -1,0 +1,14 @@
+dacx0501	KEYWORD1
+dacx0501	KEYWORD2
+begin	KEYWORD2
+detect	KEYWORD2
+reference_internal_set	KEYWORD2
+reference_external_set	KEYWORD2
+reference_divider_set	KEYWORD2
+gain_set	KEYWORD2
+powerdown_mode_set	KEYWORD2
+output_ratio_set	KEYWORD2
+output_voltage_set	KEYWORD2
+output_code_set	KEYWORD2
+register_write	KEYWORD2
+register_read	KEYWORD2
